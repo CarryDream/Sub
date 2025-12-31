@@ -1,104 +1,144 @@
+/******************************************
+ * @name 慧幸福签到
+ * @author CarryDream
+ * @update 2025-12-31
+ * @version 1.0.0
+ ******************************************
+ */
+
 /*
 [task_local]
 # 每天上午9点自动签到
-0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js, tag=慧幸福/香尔雪签到, enabled=true
+0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js, tag=慧幸福, img-url=https://yidian.xiangerxue.cn/assets/img/favicon.ico, enabled=true
 
 [rewrite_local]
 # 匹配API路径获取Token (请确认您提供的API路径是否完整匹配实际请求)
 # 注意：抓包看到的完整URL可能是 https://yidian.xiangerxue.cn/api/user/sign 或类似
 # 下面的正则假设关键路径包含 xiangerxue.cn/api
 ^https:\/\/yidian\.xiangerxue\.cn\/api url script-request-header https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js
+
+[mitm]
+hostname = yidian.xiangerxue.cn
+
 */
 
 const $ = new Env("慧幸福");
 const tokenKey = "xiangerxue_token";
 
 // === 关键配置区 ===
-// 请填入抓包看到的完整签到接口后缀，例如 "/user/signin" 或 "/daily/checkin"
-// 如果您提供的 https://yidian.xiangerxue.cn/api 就是完整接口，则保留空字符串
+// TODO: 待补充签到接口路径，例如 "/user/checkin" 或 "/daily/sign"
+// 拿到签到URL后，请填入下方 signPath 变量
 const signPath = ""; 
-// 完整的签到URL
-const signUrl = "https://yidian.xiangerxue.cn/api" + signPath; 
+// 完整的签到URL（待完善）
+const signUrl = signPath ? `https://yidian.xiangerxue.cn/api${signPath}` : ""; 
 
 // 脚本入口
 !(async () => {
   if (typeof $request !== "undefined") {
     // === 模块1：获取Token (Rewrite模式) ===
-    await getToken();
+    getToken();
+    $.done({});
   } else {
     // === 模块2：执行签到 (Task模式) ===
+    // TODO: 待签到接口确认后启用下方调用
     // await checkIn();
+    $.msg($.name, "⚠️ 签到功能未启用", "请先配置 signPath 并取消注释 checkIn() 调用");
+    $.done();
   }
-})().catch((e) => $.logErr(e)).finally(() => $.done());
+})().catch((e) => {
+  $.log(`[${$.name}] 脚本执行异常: ${e}`);
+  $.done();
+});
 
 // 获取并保存Token
 function getToken() {
-  // 常见Token字段名：Authorization, token, x-auth-token 等
-  // 请根据实际抓包结果修改下面的 key，这里默认尝试 Authorization
   const targetHeader = "token"; 
   
   // 兼容大小写
   const val = $request.headers[targetHeader] || $request.headers[targetHeader.toLowerCase()];
   
   if (val) {
-    // 只有当Token变化时才写入，避免重复提示
     const oldVal = $.getdata(tokenKey);
     if (val !== oldVal) {
+      // Token 变化时才更新存储
       $.setdata(val, tokenKey);
-      $.msg($.name, "🎉 新Token获取成功", "请去任务列表测试运行");
-      $.log(`[${$.name}] 获取Token: ${val}`);
+      $.msg($.name, "✅ Token 已更新", "新 Token 已保存，请在任务列表测试签到");
+      $.log(`[${$.name}] Token 已更新: ${val.substring(0, 20)}...`);
+    } else {
+      $.log(`[${$.name}] Token 未变化，无需更新`);
     }
   } else {
-    $.log(`[${$.name}] 未在请求头中找到 ${targetHeader}，请检查脚本配置的字段名`);
+    $.log(`[${$.name}] ⚠️ 未在请求头找到 '${targetHeader}' 字段`);
   }
 }
 
-// 执行签到
-function checkIn() {
+// 执行签到（待完善）
+async function checkIn() {
   const token = $.getdata(tokenKey);
   
   if (!token) {
-    $.msg($.name, "❌ 签到失败", "未找到Token，请先打开小程序并进行一次手动签到以获取Token");
+    $.msg($.name, "❌ Token 缺失", "请先访问小程序触发 Token 获取");
     return;
   }
+
+  if (!signUrl) {
+    $.msg($.name, "❌ 配置错误", "签到接口 URL 未配置，请填写 signPath");
+    return;
+  }
+
+  $.log(`[${$.name}] 开始签到，URL: ${signUrl}`);
 
   const myRequest = {
     url: signUrl,
     headers: {
-      "host": "yidian.xiangerxue.cn",
+      "Host": "yidian.xiangerxue.cn",
       "token": token,
-      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.18",
-      "Content-Type": "application/json/charset=UTF-8"
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.18(0x1800123a) NetType/WIFI Language/zh_CN",
+      "Content-Type": "application/json;charset=UTF-8"
     },
-    // 如果是 POST 请求且需要 body，请在此添加
+    // TODO: 确认签到请求方式（GET/POST）和是否需要 body
     // body: JSON.stringify({}), 
   };
 
   return new Promise((resolve) => {
-    // 如果是 POST 请求，请将 $.get 改为 $.post
+    // TODO: 根据实际接口调整为 $.get 或 $.post
     $.post(myRequest, (error, response, data) => {
       try {
         if (error) {
-          $.msg($.name, "签到接口请求失败", error);
+          $.msg($.name, "❌ 网络请求失败", String(error));
+          $.log(`[${$.name}] Error: ${error}`);
         } else {
-          // 这里根据实际返回的JSON判断是否成功
-          // 假设返回字段包含 "code": 200 或 "success": true
           const result = JSON.parse(data);
-          if (result.code === 200 || result.success === true) {
-             $.msg($.name, "✅ 签到成功", `服务端返回: ${result.message || "OK"}`);
-          } else {
-             $.msg($.name, "⚠️ 签到失败", `服务端返回: ${result.message || JSON.stringify(result)}`);
-          }
           $.log(`[${$.name}] 响应数据: ${data}`);
+          
+          // TODO: 根据实际接口返回结构调整判断逻辑
+          if (result.code === 200 || result.success === true) {
+            $.msg($.name, "✅ 签到成功", result.message || result.msg || "签到完成");
+          } else {
+            $.msg($.name, "⚠️ 签到失败", result.message || result.msg || JSON.stringify(result));
+          }
         }
       } catch (e) {
-        $.logErr(e, response);
-        $.msg($.name, "🚫 脚本执行异常", "解析响应失败，请查看日志");
+        $.log(`[${$.name}] 解析异常: ${e}`);
+        $.msg($.name, "❌ 响应解析失败", "请查看日志或联系开发者");
       }
       resolve();
     });
   });
 }
 
-// === 固定 Env 模版 (无需修改) ===
-function Env(t,e){class s{constructor(t){this.env=t}write(t,e){this.env.isNode()?this.env.fs.writeFileSync(t,e):this.env.setdata(t,e)}read(t){return this.env.isNode()?this.env.fs.readFileSync(t):this.env.getdata(t)}getdata(t){let e=this.read(t);if(e)return e;if(this.env.isNode()){const s=this.read(t);if(s)return s}return this.env.isSurge()||this.env.isLoon()?$persistentStore.read(t):this.env.isQuanX()?$prefs.valueForKey(t):this.env.isNode()?this.env.data[t]:void 0}setdata(t,e){return this.env.isSurge()||this.env.isLoon()?$persistentStore.write(t,e):this.env.isQuanX()?$prefs.setValueForKey(t,e):this.env.isNode()?(this.env.data[e]=t,!0):void 0}msg(e,s,i,r){const o=i;if(!e&&(e=this.env.name),this.env.isSurge()||this.env.isLoon())$notification.post(e,s,o,r);else if(this.env.isQuanX())$notify(e,s,o,r);else if(this.env.isNode()){const t=require("./sendNotify");t.sendNotify(e+"\n"+s,o+"\n"+r)}}log(t){console.log(`[${this.env.name}] ${t}`)}isNode(){return"undefined"!=typeof module&&!!module.exports}isQuanX(){return"undefined"!=typeof $task}isSurge(){return"undefined"!=typeof $httpClient&&"undefined"==typeof $loon}isLoon(){return"undefined"!=typeof $loon}}return new s(t,e)}
+function Env(name) {
+  const isLoon = typeof $loon !== "undefined", isSurge = typeof $httpClient !== "undefined" && !isLoon, isQX = typeof $task !== "undefined";
+  const http = { get: o => send(o, 'GET'), post: o => send(o, 'POST') };
+  const send = (o, m) => new Promise((r, j) => { const opt = isQX ? o : { url: o.url, headers: o.headers, body: o.body }; if (isQX) { opt.method = m; $task.fetch(opt).then(res => { res.body = res.body; r(res) }).catch(j) } else { const c = m === 'POST' ? $httpClient.post : $httpClient.get; c(opt, (e, res, b) => { if (e) j(e); else { res.body = b; r(res) } }) } });
+  const setdata = (v, k) => { if (isQX) return $prefs.setValueForKey(v, k); return $persistentStore.write(v, k) };
+  const getdata = k => { if (isQX) return $prefs.valueForKey(k); return $persistentStore.read(k) };
+  const setval = setdata;
+  const getval = getdata;
+  const notify = (t, s, m) => { if (isSurge || isLoon) $notification.post(t, s, m); if (isQX) $notify(t, s, m) };
+  const msg = (t, s, m) => { if (isSurge || isLoon) $notification.post(t, s, m); if (isQX) $notify(t, s, m); console.log(`${t}\n${s}\n${m}`) };
+  const log = console.log;
+  const logErr = (e, resp) => { log(`❌ ${name} - Error: ${e}`); if (resp) log(`Response: ${JSON.stringify(resp)}`) };
+  const done = v => { isQX ? $done(v) : $done(v) };
+  return { name, isLoon, isSurge, isQX, http, setdata, getdata, setval, getval, notify, msg, log, logErr, done };
+}
