@@ -7,7 +7,7 @@
 # 匹配API路径获取Token (请确认您提供的API路径是否完整匹配实际请求)
 # 注意：抓包看到的完整URL可能是 https://yidian.xiangerxue.cn/api/user/sign 或类似
 # 下面的正则假设关键路径包含 xiangerxue.cn/api
-^https:\/\/yidian\.xiangerxue\.cn\/api url script-request-header xiangerxue.js
+^https:\/\/yidian\.xiangerxue\.cn\/api url script-request-header https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js
 */
 
 const $ = new Env("慧幸福");
