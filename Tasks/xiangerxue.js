@@ -1,7 +1,7 @@
 /*
 [task_local]
 # 每天上午9点自动签到
-0 9 * * * xiangerxue.js, tag=慧幸福/香尔雪签到, enabled=true
+0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js, tag=慧幸福/香尔雪签到, enabled=true
 
 [rewrite_local]
 # 匹配API路径获取Token (请确认您提供的API路径是否完整匹配实际请求)
