@@ -27,7 +27,7 @@ const signUrl = "https://yidian.xiangerxue.cn/api" + signPath;
     await getToken();
   } else {
     // === 模块2：执行签到 (Task模式) ===
-    await checkIn();
+    // await checkIn();
   }
 })().catch((e) => $.logErr(e)).finally(() => $.done());
 
