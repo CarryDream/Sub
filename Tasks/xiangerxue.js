@@ -58,19 +58,15 @@ async function checkIn() {
     return;
   }
  
-  // 动态日期处理
   const now = new Date();
   const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate()}`;
-  
   const signUrl = `https://yidian.xiangerxue.cn/api/user/sign?type=2&sign_type=1&date=${dateStr}`;
  
   const myRequest = {
     url: signUrl,
     headers: {
       "Host": "yidian.xiangerxue.cn",
-      "Accept": "*/*",
       "token": token,
-      "Referer": "https://servicewechat.com/", // 已脱敏：仅保留微信小程序通用前缀
       "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
       "content-type": "application/json"
     }
@@ -80,21 +76,24 @@ async function checkIn() {
     $.log(`[${$.name}] 响应: ${response.body}`);
     try {
       const result = JSON.parse(response.body);
-      // 这里的 200 是根据大部分接口猜的，如果不成功请查看日志中的 code 值
-      if (result.code === 200 || result.code === 0 || result.data === true) {
-        $.msg($.name, "✅ 签到成功", result.msg || "完成");
+      // 逻辑优化：区分“成功签到”和“重复签到”
+      if (result.code === 200 || result.code === 0) {
+        if (result.msg && result.msg.indexOf("已签到") !== -1) {
+          $.msg($.name, "ℹ️ 重复签到", "今日已经签到过了");
+          $.log(`[${$.name}] 重复签到跳过`);
+        } else {
+          $.msg($.name, "✅ 签到成功", result.msg || "完成");
+        }
       } else {
-        $.msg($.name, "⚠️ 签到结果", result.msg || "接口返回异常");
+        $.msg($.name, "⚠️ 签到失败", result.msg || "未知原因");
       }
     } catch (e) {
-      $.msg($.name, "❌ 响应解析失败", "请检查日志");
+      $.msg($.name, "❌ 解析失败", "返回内容非 JSON 格式");
     }
   }).catch(error => {
     $.log(`[${$.name}] 请求错误: ${error}`);
   });
 }
-
-
 
 function Env(name) {
   const isLoon = typeof $loon !== "undefined", isSurge = typeof $httpClient !== "undefined" && !isLoon, isQX = typeof $task !== "undefined";
