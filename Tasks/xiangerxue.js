@@ -28,7 +28,7 @@ const tokenKey = "xiangerxue_token";
 // === 关键配置区 ===
 // TODO: 待补充签到接口路径，例如 "/user/checkin" 或 "/daily/sign"
 // 拿到签到URL后，请填入下方 signPath 变量
-const signPath = ""; 
+const signPath = "/user/sign?type=2&sign_type=1";
 // 完整的签到URL（待完善）
 const signUrl = signPath ? `https://yidian.xiangerxue.cn/api${signPath}` : ""; 
 
@@ -41,8 +41,8 @@ const signUrl = signPath ? `https://yidian.xiangerxue.cn/api${signPath}` : "";
   } else {
     // === 模块2：执行签到 (Task模式) ===
     // TODO: 待签到接口确认后启用下方调用
-    // await checkIn();
-    $.msg($.name, "⚠️ 签到功能未启用", "请先配置 signPath 并取消注释 checkIn() 调用");
+    await checkIn();
+    // $.msg($.name, "⚠️ 签到功能未启用", "请先配置 signPath 并取消注释 checkIn() 调用");
     $.done();
   }
 })().catch((e) => {
@@ -102,7 +102,7 @@ async function checkIn() {
 
   return new Promise((resolve) => {
     // TODO: 根据实际接口调整为 $.get 或 $.post
-    $.post(myRequest, (error, response, data) => {
+    $.get(myRequest, (error, response, data) => {
       try {
         if (error) {
           $.msg($.name, "❌ 网络请求失败", String(error));
@@ -112,7 +112,7 @@ async function checkIn() {
           $.log(`[${$.name}] 响应数据: ${data}`);
           
           // TODO: 根据实际接口返回结构调整判断逻辑
-          if (result.code === 200 || result.success === true) {
+          if (result.code === 0 || result.success === true) {
             $.msg($.name, "✅ 签到成功", result.message || result.msg || "签到完成");
           } else {
             $.msg($.name, "⚠️ 签到失败", result.message || result.msg || JSON.stringify(result));
