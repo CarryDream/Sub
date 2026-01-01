@@ -21,11 +21,11 @@
 hostname = yidian.xiangerxue.cn
 
 */
+ 
 
 const $ = new Env("慧幸福");
 const tokenKey = "xiangerxue_token";
  
-// 脚本入口
 !(async () => {
   if (typeof $request !== "undefined") {
     getToken();
@@ -39,79 +39,62 @@ const tokenKey = "xiangerxue_token";
   $.done();
 });
  
-// 获取并保存Token
 function getToken() {
   const targetHeader = "token"; 
   const val = $request.headers[targetHeader] || $request.headers[targetHeader.toLowerCase()];
-  
   if (val) {
     const oldVal = $.getdata(tokenKey);
     if (val !== oldVal) {
       $.setdata(val, tokenKey);
-      $.msg($.name, "✅ Token 已更新", "新 Token 已保存，请在任务列表测试签到");
-      $.log(`[${$.name}] Token 已更新: ${val}`);
-    } else {
-      $.log(`[${$.name}] Token 未变化，无需更新`);
+      $.msg($.name, "✅ Token 已获取", "隐私信息已过滤保存");
     }
   }
 }
  
-// 执行签到
 async function checkIn() {
   const token = $.getdata(tokenKey);
-  
   if (!token) {
-    $.msg($.name, "❌ Token 缺失", "请先在小程序操作触发抓取 Token");
+    $.msg($.name, "❌ Token 缺失", "请打开小程序触发");
     return;
   }
  
-  // 获取当前日期 (格式: 2026-01-1)
+  // 动态日期处理
   const now = new Date();
-  const dateStr = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+  const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate()}`;
   
-  // 构造请求 URL
   const signUrl = `https://yidian.xiangerxue.cn/api/user/sign?type=2&sign_type=1&date=${dateStr}`;
- 
-  $.log(`[${$.name}] 开始签到，日期: ${dateStr}`);
  
   const myRequest = {
     url: signUrl,
-    method: "GET",
     headers: {
       "Host": "yidian.xiangerxue.cn",
-      "Accept-Encoding": "gzip,compress,br,deflate",
-      "content-type": "application/json;charset=UTF-8",
-      "Connection": "keep-alive",
-      "Referer": "https://servicewechat.com/wx3824cf96aee7c0e0/6/page-frame.html",
+      "Accept": "*/*",
+      "token": token,
+      "Referer": "https://servicewechat.com/", // 已脱敏：仅保留微信小程序通用前缀
       "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
-      "token": token
+      "content-type": "application/json"
     }
   };
  
-  return new Promise((resolve) => {
-    $.get(myRequest, (error, response, data) => {
-      try {
-        if (error) {
-          $.msg($.name, "❌ 网络请求失败", String(error));
-        } else {
-          $.log(`[${$.name}] 原始响应内容: ${data}`);
-          const result = JSON.parse(data);
-          
-          // 根据通常的接口逻辑判断，此处假设 code 200 或 msg 包含成功为成功
-          if (result.code === 200 || result.msg?.includes("成功") || result.data === true) {
-            $.msg($.name, "✅ 签到成功", `结果: ${result.msg || "完成"}`);
-          } else {
-            $.msg($.name, "⚠️ 签到结果", `消息: ${result.msg || "接口返回异常"}`);
-          }
-        }
-      } catch (e) {
-        $.log(`[${$.name}] 解析异常: ${e}`);
-        $.msg($.name, "❌ 响应解析失败", "请查看详细日志");
+  return $.http.get(myRequest).then(response => {
+    $.log(`[${$.name}] 响应: ${response.body}`);
+    try {
+      const result = JSON.parse(response.body);
+      // 这里的 200 是根据大部分接口猜的，如果不成功请查看日志中的 code 值
+      if (result.code === 200 || result.code === 0 || result.data === true) {
+        $.msg($.name, "✅ 签到成功", result.msg || "完成");
+      } else {
+        $.msg($.name, "⚠️ 签到结果", result.msg || "接口返回异常");
       }
-      resolve();
-    });
+    } catch (e) {
+      $.msg($.name, "❌ 响应解析失败", "请检查日志");
+    }
+  }).catch(error => {
+    $.log(`[${$.name}] 请求错误: ${error}`);
   });
 }
+
+
 
 function Env(name) {
   const isLoon = typeof $loon !== "undefined", isSurge = typeof $httpClient !== "undefined" && !isLoon, isQX = typeof $task !== "undefined";
