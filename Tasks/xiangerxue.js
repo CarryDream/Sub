@@ -24,103 +24,89 @@ hostname = yidian.xiangerxue.cn
 
 const $ = new Env("慧幸福");
 const tokenKey = "xiangerxue_token";
-
-// === 关键配置区 ===
-// TODO: 待补充签到接口路径，例如 "/user/checkin" 或 "/daily/sign"
-// 拿到签到URL后，请填入下方 signPath 变量
-const signPath = "/user/sign?type=2&sign_type=1";
-// 完整的签到URL（待完善）
-const signUrl = signPath ? `https://yidian.xiangerxue.cn/api${signPath}` : ""; 
-
+ 
 // 脚本入口
 !(async () => {
   if (typeof $request !== "undefined") {
-    // === 模块1：获取Token (Rewrite模式) ===
     getToken();
     $.done({});
   } else {
-    // === 模块2：执行签到 (Task模式) ===
-    // TODO: 待签到接口确认后启用下方调用
     await checkIn();
-    // $.msg($.name, "⚠️ 签到功能未启用", "请先配置 signPath 并取消注释 checkIn() 调用");
     $.done();
   }
 })().catch((e) => {
   $.log(`[${$.name}] 脚本执行异常: ${e}`);
   $.done();
 });
-
+ 
 // 获取并保存Token
 function getToken() {
   const targetHeader = "token"; 
-  
-  // 兼容大小写
   const val = $request.headers[targetHeader] || $request.headers[targetHeader.toLowerCase()];
   
   if (val) {
     const oldVal = $.getdata(tokenKey);
     if (val !== oldVal) {
-      // Token 变化时才更新存储
       $.setdata(val, tokenKey);
       $.msg($.name, "✅ Token 已更新", "新 Token 已保存，请在任务列表测试签到");
-      $.log(`[${$.name}] Token 已更新: ${val.substring(0, 20)}...`);
+      $.log(`[${$.name}] Token 已更新: ${val}`);
     } else {
       $.log(`[${$.name}] Token 未变化，无需更新`);
     }
-  } else {
-    $.log(`[${$.name}] ⚠️ 未在请求头找到 '${targetHeader}' 字段`);
   }
 }
-
-// 执行签到（待完善）
+ 
+// 执行签到
 async function checkIn() {
   const token = $.getdata(tokenKey);
   
   if (!token) {
-    $.msg($.name, "❌ Token 缺失", "请先访问小程序触发 Token 获取");
+    $.msg($.name, "❌ Token 缺失", "请先在小程序操作触发抓取 Token");
     return;
   }
-
-  if (!signUrl) {
-    $.msg($.name, "❌ 配置错误", "签到接口 URL 未配置，请填写 signPath");
-    return;
-  }
-
-  $.log(`[${$.name}] 开始签到，URL: ${signUrl}`);
-
+ 
+  // 获取当前日期 (格式: 2026-01-1)
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+  
+  // 构造请求 URL
+  const signUrl = `https://yidian.xiangerxue.cn/api/user/sign?type=2&sign_type=1&date=${dateStr}`;
+ 
+  $.log(`[${$.name}] 开始签到，日期: ${dateStr}`);
+ 
   const myRequest = {
     url: signUrl,
+    method: "GET",
     headers: {
       "Host": "yidian.xiangerxue.cn",
-      "token": token,
-      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.18(0x1800123a) NetType/WIFI Language/zh_CN",
-      "Content-Type": "application/json;charset=UTF-8"
-    },
-    // TODO: 确认签到请求方式（GET/POST）和是否需要 body
-    // body: JSON.stringify({}), 
+      "Accept-Encoding": "gzip,compress,br,deflate",
+      "content-type": "application/json;charset=UTF-8",
+      "Connection": "keep-alive",
+      "Referer": "https://servicewechat.com/wx3824cf96aee7c0e0/6/page-frame.html",
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
+      "token": token
+    }
   };
-
+ 
   return new Promise((resolve) => {
-    // TODO: 根据实际接口调整为 $.get 或 $.post
     $.get(myRequest, (error, response, data) => {
       try {
         if (error) {
           $.msg($.name, "❌ 网络请求失败", String(error));
-          $.log(`[${$.name}] Error: ${error}`);
         } else {
+          $.log(`[${$.name}] 原始响应内容: ${data}`);
           const result = JSON.parse(data);
-          $.log(`[${$.name}] 响应数据: ${data}`);
           
-          // TODO: 根据实际接口返回结构调整判断逻辑
-          if (result.code === 0 || result.success === true) {
-            $.msg($.name, "✅ 签到成功", result.message || result.msg || "签到完成");
+          // 根据通常的接口逻辑判断，此处假设 code 200 或 msg 包含成功为成功
+          if (result.code === 200 || result.msg?.includes("成功") || result.data === true) {
+            $.msg($.name, "✅ 签到成功", `结果: ${result.msg || "完成"}`);
           } else {
-            $.msg($.name, "⚠️ 签到失败", result.message || result.msg || JSON.stringify(result));
+            $.msg($.name, "⚠️ 签到结果", `消息: ${result.msg || "接口返回异常"}`);
           }
         }
       } catch (e) {
         $.log(`[${$.name}] 解析异常: ${e}`);
-        $.msg($.name, "❌ 响应解析失败", "请查看日志或联系开发者");
+        $.msg($.name, "❌ 响应解析失败", "请查看详细日志");
       }
       resolve();
     });
