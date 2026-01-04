@@ -131,11 +131,11 @@ async function checkIn() {
       if (result.code === 1) {
         // 签到成功
         const score = result.data && result.data.score ? result.data.score : "未知";
-        $.msg($.name, `✅ ${modeText}成功`, `当前积分: ${score}`);
+        // $.msg($.name, `✅ ${modeText}成功`, `当前积分: ${score}`);
         $.log(`[${$.name}] ${modeText}成功，积分: ${score}`);
       } else if (result.code === 0 && result.msg && result.msg.indexOf("已签到") !== -1) {
         // 今日已签到
-        $.msg($.name, "ℹ️ 今日已签到", result.msg);
+        // $.msg($.name, "ℹ️ 今日已签到", result.msg);
         $.log(`[${$.name}] ${result.msg}`);
       } else {
         // 其他错误
