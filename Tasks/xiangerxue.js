@@ -1,30 +1,77 @@
 /******************************************
  * @name 慧幸福签到
  * @author CarryDream
- * @update 2025-12-31
- * @version 1.0.0
+ * @update 2025-01-04
+ * @version 1.1.0
+ * @description 支持通过 URL 参数配置签到类型
  ******************************************
  */
 
 /*
 [task_local]
 # 每天上午9点自动签到
+# 参数说明：type=1 固定签到, type=2 随机签到（默认）
+# 
+# 示例1: 默认随机签到
 0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js, tag=慧幸福, img-url=https://yidian.xiangerxue.cn/assets/img/favicon.ico, enabled=true
+# 示例2: 使用固定签到（URL参数方式）
+# 0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js?type=1, tag=慧幸福(固定), img-url=https://yidian.xiangerxue.cn/assets/img/favicon.ico, enabled=true
 
 [rewrite_local]
-# 匹配API路径获取Token (请确认您提供的API路径是否完整匹配实际请求)
-# 注意：抓包看到的完整URL可能是 https://yidian.xiangerxue.cn/api/user/sign 或类似
-# 下面的正则假设关键路径包含 xiangerxue.cn/api
 ^https:\/\/yidian\.xiangerxue\.cn\/api url script-request-header https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js
 
 [mitm]
 hostname = yidian.xiangerxue.cn
 
 */
- 
 
 const $ = new Env("慧幸福");
 const tokenKey = "xiangerxue_token";
+
+// 参数解析（参考 kuwotask.js）
+const ARGS = (() => {
+  let args = { type: "2" }; // 默认随机签到
+  let input = null;
+
+  // 1. 尝试从 $argument 获取（QX argument 参数）
+  if (typeof $argument !== "undefined") {
+    input = $argument;
+  } 
+  // 2. 尝试从 URL 参数获取（?type=1）
+  else if (typeof $environment !== "undefined" && $environment.sourcePath) {
+    input = $environment.sourcePath.split(/[?#]/)[1];
+  }
+
+  if (!input) return args;
+
+  // 处理对象格式
+  if (typeof input === "object") {
+    args.type = String(input.type || "2");
+    return args;
+  }
+
+  // 处理字符串格式
+  let str = String(input).trim().replace(/^\[|\]$/g, "").replace(/^"|"$/g, "");
+  
+  if (str.includes("=")) {
+    // 支持 type=1 或 type=1&other=value 格式
+    str.split(/&|,/).forEach(item => {
+      let [k, v] = item.split("=");
+      if (k && k.trim() === "type" && v) {
+        args.type = decodeURIComponent(v.trim());
+      }
+    });
+  } else if (str === "1" || str === "2") {
+    // 兼容直接传入 1 或 2
+    args.type = str;
+  }
+
+  // 校验并归一化 type 值
+  args.type = (args.type === "1" || args.type === "固定") ? "1" : "2";
+  return args;
+})();
+
+$.log(`[慧幸福] 签到模式: type=${ARGS.type} (${ARGS.type === "1" ? "固定签到" : "随机签到"})`);
  
 !(async () => {
   if (typeof $request !== "undefined") {
@@ -57,11 +104,15 @@ async function checkIn() {
     $.msg($.name, "❌ Token 缺失", "请打开小程序触发");
     return;
   }
- 
+ 
   const now = new Date();
-  const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate()}`;
-  const signUrl = `https://yidian.xiangerxue.cn/api/user/sign?type=2&sign_type=1&date=${dateStr}`;
- 
+  const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
+  const signType = ARGS.type;
+  const signUrl = `https://yidian.xiangerxue.cn/api/user/sign?type=${signType}&sign_type=1&date=${dateStr}`;
+  
+  const modeText = signType === "1" ? "固定签到" : "随机签到";
+  $.log(`[${$.name}] 开始${modeText}，URL: ${signUrl}`);
+ 
   const myRequest = {
     url: signUrl,
     headers: {
@@ -71,26 +122,32 @@ async function checkIn() {
       "content-type": "application/json"
     }
   };
- 
+ 
   return $.http.get(myRequest).then(response => {
     $.log(`[${$.name}] 响应: ${response.body}`);
     try {
       const result = JSON.parse(response.body);
-      // 逻辑优化：区分“成功签到”和“重复签到”
-      if (result.code === 200 || result.code === 0) {
-        if (result.msg && result.msg.indexOf("已签到") !== -1) {
-          $.msg($.name, "ℹ️ 重复签到", "今日已经签到过了");
-          $.log(`[${$.name}] 重复签到跳过`);
-        } else {
-          $.msg($.name, "✅ 签到成功", result.msg || "完成");
-        }
+      
+      if (result.code === 1) {
+        // 签到成功
+        const score = result.data && result.data.score ? result.data.score : "未知";
+        $.msg($.name, `✅ ${modeText}成功`, `当前积分: ${score}`);
+        $.log(`[${$.name}] ${modeText}成功，积分: ${score}`);
+      } else if (result.code === 0 && result.msg && result.msg.indexOf("已签到") !== -1) {
+        // 今日已签到
+        $.msg($.name, "ℹ️ 今日已签到", result.msg);
+        $.log(`[${$.name}] ${result.msg}`);
       } else {
-        $.msg($.name, "⚠️ 签到失败", result.msg || "未知原因");
+        // 其他错误
+        $.msg($.name, `⚠️ ${modeText}失败`, result.msg || `未知错误 (code: ${result.code})`);
+        $.log(`[${$.name}] 签到失败: ${JSON.stringify(result)}`);
       }
     } catch (e) {
       $.msg($.name, "❌ 解析失败", "返回内容非 JSON 格式");
+      $.log(`[${$.name}] 解析异常: ${e}`);
     }
   }).catch(error => {
+    $.msg($.name, "❌ 网络请求失败", String(error));
     $.log(`[${$.name}] 请求错误: ${error}`);
   });
 }
