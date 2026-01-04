@@ -2,15 +2,18 @@
  * @name 慧幸福签到
  * @author CarryDream
  * @update 2025-01-04
- * @version 1.1.0
- * @description 支持通过 URL 参数配置签到类型
+ * @version 1.2.0
+ * @description 支持签到类型配置 + 自动浏览资讯
  ******************************************
  */
 
 /*
 [task_local]
-# 每天上午9点自动签到
+# 每天上午9点自动签到 + 浏览资讯
 # 参数说明：type=1 固定签到, type=2 随机签到（默认）
+# 功能说明：
+#   1. 自动签到（支持固定/随机模式）
+#   2. 自动浏览10篇资讯（ID: 100-285，间隔2秒）
 # 
 # 示例1: 默认随机签到
 0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js, tag=慧幸福, img-url=https://yidian.xiangerxue.cn/assets/img/favicon.ico, enabled=true
@@ -79,6 +82,7 @@ $.log(`[慧幸福] 签到模式: type=${ARGS.type} (${ARGS.type === "1" ? "固�
     $.done({});
   } else {
     await checkIn();
+    await browseArticles();
     $.done();
   }
 })().catch((e) => {
@@ -131,11 +135,11 @@ async function checkIn() {
       if (result.code === 1) {
         // 签到成功
         const score = result.data && result.data.score ? result.data.score : "未知";
-        // $.msg($.name, `✅ ${modeText}成功`, `当前积分: ${score}`);
+        $.msg($.name, `✅ ${modeText}成功`, `当前积分: ${score}`);
         $.log(`[${$.name}] ${modeText}成功，积分: ${score}`);
       } else if (result.code === 0 && result.msg && result.msg.indexOf("已签到") !== -1) {
         // 今日已签到
-        // $.msg($.name, "ℹ️ 今日已签到", result.msg);
+        $.msg($.name, "ℹ️ 今日已签到", result.msg);
         $.log(`[${$.name}] ${result.msg}`);
       } else {
         // 其他错误
@@ -150,6 +154,70 @@ async function checkIn() {
     $.msg($.name, "❌ 网络请求失败", String(error));
     $.log(`[${$.name}] 请求错误: ${error}`);
   });
+}
+
+// 浏览资讯文章（增加活跃度）
+async function browseArticles() {
+  const token = $.getdata(tokenKey);
+  if (!token) {
+    $.log(`[${$.name}] Token 缺失，跳过浏览任务`);
+    return;
+  }
+
+  const BROWSE_COUNT = 10;  // 浏览次数
+  const BROWSE_DELAY = 2000; // 间隔2秒
+  const ID_MIN = 100;
+  const ID_MAX = 285;
+
+  let successCount = 0;
+  let failCount = 0;
+
+  $.log(`[${$.name}] 开始浏览资讯，共 ${BROWSE_COUNT} 篇...`);
+
+  for (let i = 0; i < BROWSE_COUNT; i++) {
+    const randomId = Math.floor(Math.random() * (ID_MAX - ID_MIN + 1)) + ID_MIN;
+    const articleUrl = `https://yidian.xiangerxue.cn/api/information/getInfo?id=${randomId}`;
+
+    const myRequest = {
+      url: articleUrl,
+      headers: {
+        "Host": "yidian.xiangerxue.cn",
+        "token": token,
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
+        "content-type": "application/json"
+      }
+    };
+
+    try {
+      const response = await $.http.get(myRequest);
+      const result = JSON.parse(response.body);
+      
+      if (result.code === 1) {
+        successCount++;
+        const title = result.data && result.data.name ? result.data.name.substring(0, 15) : "未知";
+        $.log(`[${$.name}] 浏览 ${i + 1}/${BROWSE_COUNT}: ID=${randomId}, 标题=${title}...`);
+      } else {
+        failCount++;
+        $.log(`[${$.name}] 浏览 ${i + 1}/${BROWSE_COUNT}: ID=${randomId} 失败 (code: ${result.code})`);
+      }
+    } catch (e) {
+      failCount++;
+      $.log(`[${$.name}] 浏览 ${i + 1}/${BROWSE_COUNT}: ID=${randomId} 异常 - ${e}`);
+    }
+
+    // 最后一次不需要延迟
+    if (i < BROWSE_COUNT - 1) {
+      await sleep(BROWSE_DELAY);
+    }
+  }
+
+  $.log(`[${$.name}] 浏览完成: 成功 ${successCount} 篇, 失败 ${failCount} 篇`);
+  $.msg($.name, "📖 浏览资讯完成", `成功: ${successCount}/${BROWSE_COUNT} 篇`);
+}
+
+// 延迟函数
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function Env(name) {
