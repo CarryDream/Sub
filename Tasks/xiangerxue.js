@@ -16,9 +16,9 @@
 #   2. 自动浏览10篇资讯（ID: 100-285，间隔2秒）
 # 
 # 示例1: 默认随机签到
-0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js, tag=慧幸福, img-url=https://yidian.xiangerxue.cn/assets/img/favicon.ico, enabled=true
+0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js, tag=慧幸福, img-url=https://icon.uiboy.com/icons/1607434573_preview.png, enabled=true
 # 示例2: 使用固定签到（URL参数方式）
-# 0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js?type=1, tag=慧幸福(固定), img-url=https://yidian.xiangerxue.cn/assets/img/favicon.ico, enabled=true
+# 0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js?type=1, tag=慧幸福(固定), img-url=https://icon.uiboy.com/icons/1607434573_preview.png, enabled=true
 
 [rewrite_local]
 ^https:\/\/yidian\.xiangerxue\.cn\/api url script-request-header https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js
@@ -171,6 +171,7 @@ async function browseArticles() {
 
   let successCount = 0;
   let failCount = 0;
+  let sharedTitle = null; // 记录一个成功的标题用于分享
 
   $.log(`[${$.name}] 开始浏览资讯，共 ${BROWSE_COUNT} 篇...`);
 
@@ -194,8 +195,14 @@ async function browseArticles() {
       
       if (result.code === 1) {
         successCount++;
-        const title = result.data && result.data.name ? result.data.name.substring(0, 15) : "未知";
+        const fullTitle = result.data && result.data.name ? result.data.name : "";
+        const title = fullTitle.substring(0, 15);
         $.log(`[${$.name}] 浏览 ${i + 1}/${BROWSE_COUNT}: ID=${randomId}, 标题=${title}...`);
+        
+        // 记录第一个成功的完整标题用于分享
+        if (!sharedTitle && fullTitle) {
+          sharedTitle = fullTitle;
+        }
       } else {
         failCount++;
         $.log(`[${$.name}] 浏览 ${i + 1}/${BROWSE_COUNT}: ID=${randomId} 失败 (code: ${result.code})`);
@@ -213,6 +220,43 @@ async function browseArticles() {
 
   $.log(`[${$.name}] 浏览完成: 成功 ${successCount} 篇, 失败 ${failCount} 篇`);
   $.msg($.name, "📖 浏览资讯完成", `成功: ${successCount}/${BROWSE_COUNT} 篇`);
+
+  // 分享一篇文章获取积分
+  if (sharedTitle) {
+    await shareArticle(token, sharedTitle);
+  }
+}
+
+// 分享文章（每日首次分享可获得5积分）
+async function shareArticle(token, title) {
+  const encodedTitle = encodeURIComponent(title);
+  const shareUrl = `https://yidian.xiangerxue.cn/api/user/recordShareTime?memo=${encodedTitle}`;
+
+  $.log(`[${$.name}] 开始分享: ${title.substring(0, 20)}...`);
+
+  const myRequest = {
+    url: shareUrl,
+    headers: {
+      "Host": "yidian.xiangerxue.cn",
+      "token": token,
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
+      "content-type": "application/json"
+    }
+  };
+
+  try {
+    const response = await $.http.get(myRequest);
+    const result = JSON.parse(response.body);
+    
+    if (result.code === 1) {
+      $.log(`[${$.name}] 分享成功`);
+      $.msg($.name, "🔗 分享成功", "每日首次分享可获得5积分");
+    } else {
+      $.log(`[${$.name}] 分享返回: ${result.msg || JSON.stringify(result)}`);
+    }
+  } catch (e) {
+    $.log(`[${$.name}] 分享异常: ${e}`);
+  }
 }
 
 // 延迟函数
