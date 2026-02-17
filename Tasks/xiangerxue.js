@@ -123,7 +123,7 @@ async function checkIn() {
       "Host": "yidian.xiangerxue.cn",
       "token": token,
       "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
-      "content-type": "application/json"
+      "content-type": "application/json;charset=UTF-8"
     }
   };
  
@@ -185,7 +185,7 @@ async function browseArticles() {
         "Host": "yidian.xiangerxue.cn",
         "token": token,
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
-        "content-type": "application/json"
+        "content-type": "application/json;charset=UTF-8"
       }
     };
 
