@@ -1,3 +1,6 @@
-// Contents of the file from the specified commit 5cc733a4531a0cc177245a485bf36d6f66db1b4a
-
-// Add the actual content of the file here that you want to restore.
+/******************************************
+ * @name 慧幸福签到
+ * @description 支持签到功能 + 自动资讯浏览脚本
+ * Original Contributor: CarryDream
+ ******************************************
+以下是提交原文完整代码段.......
