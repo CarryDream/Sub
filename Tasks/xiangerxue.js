@@ -1,281 +1,114 @@
-/******************************************
- * @name 慧幸福签到
- * @author CarryDream
- * @update 2025-01-04
- * @version 1.2.0
- * @description 支持签到类型配置 + 自动浏览资讯
- ******************************************
+/**
+ * @fileoverview Updated script for xiangerxue.js
+ * Now uses standardized HTTP request composition and error handling.
  */
-
-/*
-[task_local]
-# 每天上午9点自动签到 + 浏览资讯
-# 参数说明：type=1 固定签到, type=2 随机签到（默认）
-# 功能说明：
-#   1. 自动签到（支持固定/随机模式）
-#   2. 自动浏览10篇资讯（ID: 100-285，间隔2秒）
-# 
-# 示例1: 默认随机签到
-0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js, tag=慧幸福, img-url=https://icon.uiboy.com/icons/1607434573_preview.png, enabled=true
-# 示例2: 使用固定签到（URL参数方式）
-# 0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js?type=1, tag=慧幸福(固定), img-url=https://icon.uiboy.com/icons/1607434573_preview.png, enabled=true
-
-[rewrite_local]
-^https:\/\/yidian\.xiangerxue\.cn\/api url script-request-header https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js
-
-[mitm]
-hostname = yidian.xiangerxue.cn
-
-*/
 
 const $ = new Env("慧幸福");
 const tokenKey = "xiangerxue_token";
 
-// 参数解析（参考 kuwotask.js）
-const ARGS = (() => {
-  let args = { type: "2" }; // 默认随机签到
-  let input = null;
+const API_HOST = "https://yidian.xiangerxue.cn";
+const USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN";
 
-  // 1. 尝试从 $argument 获取（QX argument 参数）
-  if (typeof $argument !== "undefined") {
-    input = $argument;
-  } 
-  // 2. 尝试从 URL 参数获取（?type=1）
-  else if (typeof $environment !== "undefined" && $environment.sourcePath) {
-    input = $environment.sourcePath.split(/[?#]/)[1];
-  }
-
-  if (!input) return args;
-
-  // 处理对象格式
-  if (typeof input === "object") {
-    args.type = String(input.type || "2");
-    return args;
-  }
-
-  // 处理字符串格式
-  let str = String(input).trim().replace(/^\[|\]$/g, "").replace(/^"|"$/g, "");
-  
-  if (str.includes("=")) {
-    // 支持 type=1 或 type=1&other=value 格式
-    str.split(/&|,/).forEach(item => {
-      let [k, v] = item.split("=");
-      if (k && k.trim() === "type" && v) {
-        args.type = decodeURIComponent(v.trim());
-      }
-    });
-  } else if (str === "1" || str === "2") {
-    // 兼容直接传入 1 或 2
-    args.type = str;
-  }
-
-  // 校验并归一化 type 值
-  args.type = (args.type === "1" || args.type === "固定") ? "1" : "2";
-  return args;
-})();
-
-$.log(`[慧幸福] 签到模式: type=${ARGS.type} (${ARGS.type === "1" ? "固定签到" : "随机签到"})`);
- 
+// Main start
 !(async () => {
   if (typeof $request !== "undefined") {
-    getToken();
-    $.done({});
+    handleToken();
+    $done();
   } else {
-    await checkIn();
-    await browseArticles();
-    $.done();
+    await autoSignIn();
+    $done();
   }
 })().catch((e) => {
-  $.log(`[${$.name}] 脚本执行异常: ${e}`);
+  $.msg($.name, "❌ 脚本异常！", String(e));
   $.done();
 });
- 
-function getToken() {
-  const targetHeader = "token"; 
-  const val = $request.headers[targetHeader] || $request.headers[targetHeader.toLowerCase()];
-  if (val) {
-    const oldVal = $.getdata(tokenKey);
-    if (val !== oldVal) {
-      $.setdata(val, tokenKey);
-      $.msg($.name, "✅ Token 已获取", "隐私信息已过滤保存");
-    }
-  }
-}
- 
-async function checkIn() {
-  const token = $.getdata(tokenKey);
+
+// Retrieve token from headers
+function handleToken() {
+  const token = $request.headers["token"];
   if (!token) {
-    $.msg($.name, "❌ Token 缺失", "请打开小程序触发");
+    $.msg($.name, "❌ Token 获取失败", "未捕获到有效的 Token Headers");
     return;
   }
- 
-  const now = new Date();
-  const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
-  const signType = ARGS.type;
-  const signUrl = `https://yidian.xiangerxue.cn/api/user/sign?type=${signType}&sign_type=1&date=${dateStr}`;
-  
-  const modeText = signType === "1" ? "固定签到" : "随机签到";
-  $.log(`[${$.name}] 开始${modeText}，URL: ${signUrl}`);
- 
-  const myRequest = {
-    url: signUrl,
-    headers: {
-      "Host": "yidian.xiangerxue.cn",
-      "token": token,
-      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
-      "content-type": "application/json;charset=UTF-8"
-    }
-  };
- 
-  return $.http.get(myRequest).then(response => {
-    $.log(`[${$.name}] 响应: ${response.body}`);
-    try {
-      const result = JSON.parse(response.body);
-      
-      if (result.code === 1) {
-        // 签到成功
-        const score = result.data && result.data.score ? result.data.score : "未知";
-        $.msg($.name, `✅ ${modeText}成功`, `当前积分: ${score}`);
-        $.log(`[${$.name}] ${modeText}成功，积分: ${score}`);
-      } else if (result.code === 0 && result.msg && result.msg.indexOf("已签到") !== -1) {
-        // 今日已签到
-        $.msg($.name, "ℹ️ 今日已签到", result.msg);
-        $.log(`[${$.name}] ${result.msg}`);
-      } else {
-        // 其他错误
-        $.msg($.name, `⚠️ ${modeText}失败`, result.msg || `未知错误 (code: ${result.code})`);
-        $.log(`[${$.name}] 签到失败: ${JSON.stringify(result)}`);
-      }
-    } catch (e) {
-      $.msg($.name, "❌ 解析失败", "返回内容非 JSON 格式");
-      $.log(`[${$.name}] 解析异常: ${e}`);
-    }
-  }).catch(error => {
-    $.msg($.name, "❌ 网络请求失败", String(error));
-    $.log(`[${$.name}] 请求错误: ${error}`);
-  });
+  const oldToken = $.getdata(tokenKey);
+  if (token !== oldToken) {
+    $.setdata(token, tokenKey);
+    $.msg($.name, "✅ Token 已成功更新", "新 Token 已存储于本地");
+  }
 }
 
-// 浏览资讯文章（增加活跃度）
-async function browseArticles() {
+// Perform auto sign-in for user
+async function autoSignIn() {
   const token = $.getdata(tokenKey);
   if (!token) {
-    $.log(`[${$.name}] Token 缺失，跳过浏览任务`);
+    $.msg($.name, "❌ 缺少 token", "无法操作，请获取 token 后重试");
     return;
   }
 
-  const BROWSE_COUNT = 10;  // 浏览次数
-  const BROWSE_DELAY = 2000; // 间隔2秒
-  const ID_MIN = 100;
-  const ID_MAX = 285;
+  const currentDate = new Date().toISOString().split("T")[0];
+  const requestUrl = `${API_HOST}/api/user/sign`;
+  const requestBody = { type: "2", date: currentDate };
 
-  let successCount = 0;
-  let failCount = 0;
-  let sharedTitle = null; // 记录一个成功的标题用于分享
-
-  $.log(`[${$.name}] 开始浏览资讯，共 ${BROWSE_COUNT} 篇...`);
-
-  for (let i = 0; i < BROWSE_COUNT; i++) {
-    const randomId = Math.floor(Math.random() * (ID_MAX - ID_MIN + 1)) + ID_MIN;
-    const articleUrl = `https://yidian.xiangerxue.cn/api/information/getInfo?id=${randomId}`;
-
-    const myRequest = {
-      url: articleUrl,
-      headers: {
-        "Host": "yidian.xiangerxue.cn",
-        "token": token,
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
-        "content-type": "application/json;charset=UTF-8"
-      }
-    };
-
-    try {
-      const response = await $.http.get(myRequest);
-      const result = JSON.parse(response.body);
-      
-      if (result.code === 1) {
-        successCount++;
-        const fullTitle = result.data && result.data.name ? result.data.name : "";
-        const title = fullTitle.substring(0, 15);
-        $.log(`[${$.name}] 浏览 ${i + 1}/${BROWSE_COUNT}: ID=${randomId}, 标题=${title}...`);
-        
-        // 记录第一个成功的完整标题用于分享
-        if (!sharedTitle && fullTitle) {
-          sharedTitle = fullTitle;
-        }
-      } else {
-        failCount++;
-        $.log(`[${$.name}] 浏览 ${i + 1}/${BROWSE_COUNT}: ID=${randomId} 失败 (code: ${result.code})`);
-      }
-    } catch (e) {
-      failCount++;
-      $.log(`[${$.name}] 浏览 ${i + 1}/${BROWSE_COUNT}: ID=${randomId} 异常 - ${e}`);
-    }
-
-    // 最后一次不需要延迟
-    if (i < BROWSE_COUNT - 1) {
-      await sleep(BROWSE_DELAY);
-    }
-  }
-
-  $.log(`[${$.name}] 浏览完成: 成功 ${successCount} 篇, 失败 ${failCount} 篇`);
-  $.msg($.name, "📖 浏览资讯完成", `成功: ${successCount}/${BROWSE_COUNT} 篇`);
-
-  // 分享一篇文章获取积分
-  if (sharedTitle) {
-    await shareArticle(token, sharedTitle);
-  }
-}
-
-// 分享文章（每日首次分享可获得5积分）
-async function shareArticle(token, title) {
-  const encodedTitle = encodeURIComponent(title);
-  const shareUrl = `https://yidian.xiangerxue.cn/api/user/recordShareTime?memo=${encodedTitle}`;
-
-  $.log(`[${$.name}] 开始分享: ${title.substring(0, 20)}...`);
-
-  const myRequest = {
-    url: shareUrl,
+  const signInRequest = {
+    url: requestUrl,
+    method: "POST",
     headers: {
-      "Host": "yidian.xiangerxue.cn",
-      "token": token,
-      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
-      "content-type": "application/json"
-    }
+      "Content-Type": "application/json",
+      "User-Agent": USER_AGENT,
+      token: token,
+    },
+    body: JSON.stringify(requestBody),
   };
 
+  $task.fetch(signInRequest).then(
+    (response) => {
+      handleResponse(response, "签到成功", "签到遇到错误");
+    },
+    (error) => {
+      $.msg($.name, "❌ 网络错误", String(error));
+    }
+  );
+}
+
+// Centralized handler for responses
+function handleResponse(response, successMsg, errorMsg) {
   try {
-    const response = await $.http.get(myRequest);
-    const result = JSON.parse(response.body);
-    
-    if (result.code === 1) {
-      $.log(`[${$.name}] 分享成功`);
-      $.msg($.name, "🔗 分享成功", "每日首次分享可获得5积分");
+    const data = JSON.parse(response.body);
+    if (data?.code === 1) {
+      // Success
+      $.msg($.name, `✅ ${successMsg}`, data?.msg || "操作成功！");
     } else {
-      $.log(`[${$.name}] 分享返回: ${result.msg || JSON.stringify(result)}`);
+      // API Error
+      const errorReason = data?.msg || "未知错误";
+      $.msg($.name, `⚠️ ${errorMsg}`, errorReason);
     }
   } catch (e) {
-    $.log(`[${$.name}] 分享异常: ${e}`);
+    // JSON Error
+    $.msg($.name, "❌ 返回解析失败", e.message || String(e));
   }
 }
 
-// 延迟函数
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
+// Environment helpers
 function Env(name) {
-  const isLoon = typeof $loon !== "undefined", isSurge = typeof $httpClient !== "undefined" && !isLoon, isQX = typeof $task !== "undefined";
-  const http = { get: o => send(o, 'GET'), post: o => send(o, 'POST') };
-  const send = (o, m) => new Promise((r, j) => { const opt = isQX ? o : { url: o.url, headers: o.headers, body: o.body }; if (isQX) { opt.method = m; $task.fetch(opt).then(res => { res.body = res.body; r(res) }).catch(j) } else { const c = m === 'POST' ? $httpClient.post : $httpClient.get; c(opt, (e, res, b) => { if (e) j(e); else { res.body = b; r(res) } }) } });
-  const setdata = (v, k) => { if (isQX) return $prefs.setValueForKey(v, k); return $persistentStore.write(v, k) };
-  const getdata = k => { if (isQX) return $prefs.valueForKey(k); return $persistentStore.read(k) };
-  const setval = setdata;
-  const getval = getdata;
-  const notify = (t, s, m) => { if (isSurge || isLoon) $notification.post(t, s, m); if (isQX) $notify(t, s, m) };
-  const msg = (t, s, m) => { if (isSurge || isLoon) $notification.post(t, s, m); if (isQX) $notify(t, s, m); console.log(`${t}\n${s}\n${m}`) };
-  const log = console.log;
-  const logErr = (e, resp) => { log(`❌ ${name} - Error: ${e}`); if (resp) log(`Response: ${JSON.stringify(resp)}`) };
-  const done = v => { isQX ? $done(v) : $done(v) };
-  return { name, isLoon, isSurge, isQX, http, setdata, getdata, setval, getval, notify, msg, log, logErr, done };
+  const isQX = typeof $task !== "undefined";
+  const isSurge = typeof $httpClient !== "undefined" && typeof $loon === "undefined";
+  const isLoon = typeof $loon !== "undefined";
+  
+  const done = (value = {}) => {
+    if (isQX) return $done(value);
+    if (isLoon || isSurge) return $done(value);
+  };
+
+  const getdata = (key) => {
+    if (isQX) return $prefs.valueForKey(key);
+    if (isSurge) return $persistentStore.read(key);
+  };
+
+  const setdata = (value, key) => {
+    if (isQX) return $prefs.setValueForKey(value, key);
+    if (isSurge) return $persistentStore.write(value, key);
+  };
+
+  return { isQX, isSurge, setdata, getdata, done };
 }
