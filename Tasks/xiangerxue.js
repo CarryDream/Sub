@@ -14,7 +14,7 @@
 # 功能说明：
 #   1. 自动签到（支持固定/随机模式）
 #   2. 自动浏览10篇资讯（ID: 100-285，间隔2秒）
-# 
+#
 # 示例1: 默认随机签到
 0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue.js, tag=慧幸福, img-url=https://icon.uiboy.com/icons/1607434573_preview.png, enabled=true
 # 示例2: 使用固定签到（URL参数方式）
@@ -63,7 +63,7 @@ const ARGS = (() => {
   // 1. 尝试从 $argument 获取（QX argument 参数）
   if (typeof $argument !== "undefined") {
     input = $argument;
-  } 
+  }
   // 2. 尝试从 URL 参数获取（?type=1）
   else if (typeof $environment !== "undefined" && $environment.sourcePath) {
     input = $environment.sourcePath.split(/[?#]/)[1];
@@ -79,7 +79,7 @@ const ARGS = (() => {
 
   // 处理字符串格式
   let str = String(input).trim().replace(/^\[|\]$/g, "").replace(/^"|"$/g, "");
-  
+
   if (str.includes("=")) {
     // 支持 type=1 或 type=1&other=value 格式
     str.split(/&|,/).forEach(item => {
@@ -99,7 +99,7 @@ const ARGS = (() => {
 })();
 
 $.log(`[${$.name}] 启动完成，签到模式: type=${ARGS.type} (${ARGS.type === "1" ? "固定签到" : "随机签到"})`);
- 
+
 !(async () => {
   if (typeof $request !== "undefined") {
     getToken();
@@ -113,9 +113,9 @@ $.log(`[${$.name}] 启动完成，签到模式: type=${ARGS.type} (${ARGS.type =
   logWarn("主流程", `脚本执行异常: ${e}`);
   $.done();
 });
- 
+
 function getToken() {
-  const targetHeader = "token"; 
+  const targetHeader = "token";
   const val = $request.headers[targetHeader] || $request.headers[targetHeader.toLowerCase()];
   if (val) {
     const oldVal = $.getdata(tokenKey);
@@ -128,7 +128,7 @@ function getToken() {
     }
   }
 }
- 
+
 async function checkIn() {
   const token = $.getdata(tokenKey);
   if (!token) {
@@ -136,15 +136,15 @@ async function checkIn() {
     logWarn("签到", "未找到 token，任务已跳过");
     return;
   }
- 
+
   const now = new Date();
   const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
   const signType = ARGS.type;
   const signUrl = `https://yidian.xiangerxue.cn/api/user/sign?type=${signType}&sign_type=1&date=${dateStr}`;
-  
+
   const modeText = signType === "1" ? "固定签到" : "随机签到";
   logStep("签到", `开始${modeText}，日期=${dateStr}`);
- 
+
   const myRequest = {
     url: signUrl,
     headers: {
@@ -154,12 +154,12 @@ async function checkIn() {
       "content-type": "application/json"
     }
   };
- 
+
   return $.http.get(myRequest).then(response => {
     try {
       const result = JSON.parse(response.body);
       logStep("签到", `接口返回: code=${result.code}, msg=${result.msg || "无"}`);
-      
+
       if (result.code === 1) {
         // 签到成功
         const score = result.data && result.data.score ? result.data.score : "未知";
@@ -220,13 +220,13 @@ async function browseArticles() {
     try {
       const response = await $.http.get(myRequest);
       const result = JSON.parse(response.body);
-      
+
       if (result.code === 1) {
         successCount++;
         const fullTitle = result.data && result.data.name ? result.data.name : "";
         const title = clipText(fullTitle, 15);
         logStep("浏览", `${i + 1}/${BROWSE_COUNT} 成功 | ID=${randomId} | 标题=${title || "无标题"}`);
-        
+
         // 记录第一个成功的完整标题用于分享
         if (!sharedTitle && fullTitle) {
           sharedTitle = fullTitle;
@@ -275,7 +275,7 @@ async function shareArticle(token, title) {
   try {
     const response = await $.http.get(myRequest);
     const result = JSON.parse(response.body);
-    
+
     if (result.code === 1) {
       logOk("分享", "分享成功");
       $.msg($.name, "🔗 分享成功", "每日首次分享可获得5积分");
