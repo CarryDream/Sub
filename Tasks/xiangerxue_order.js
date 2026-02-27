@@ -22,6 +22,10 @@
 # pay_type=score       支付类型，默认 score
 # remark=              订单备注
 # dry_run=0            1=仅查询不下单，0=真实下单
+# allow_zero_stock=0   1=库存为0也允许尝试下单，0=默认跳过库存0
+# run_minutes=5        重试执行时长（分钟），默认5
+# retry_min_sec=1      重试最小间隔秒数，默认1
+# retry_max_sec=3      重试最大间隔秒数，默认3
 #
 # 示例：按关键字抢兑
 # 0 9 * * * https://raw.githubusercontent.com/CarryDream/Sub/refs/heads/main/Tasks/xiangerxue_order.js?keyword=%E5%86%AC%E5%AD%A3&num=1&dry_run=0, tag=慧幸福定时下单(关键字), img-url=https://icon.uiboy.com/icons/1607434573_preview.png, enabled=true
@@ -80,7 +84,11 @@ function parseArgs() {
     order: "",
     pay_type: "score",
     remark: "",
-    dry_run: "0"
+    dry_run: "0",
+    allow_zero_stock: "0",
+    run_minutes: 5,
+    retry_min_sec: 1,
+    retry_max_sec: 3
   };
   let input = null;
   if (typeof $argument !== "undefined") {
@@ -109,6 +117,11 @@ function parseArgs() {
   args.page = Math.max(1, parseInt(args.page, 10) || 1);
   args.size = Math.max(1, parseInt(args.size, 10) || 10);
   args.dry_run = String(args.dry_run) === "1" ? "1" : "0";
+  args.allow_zero_stock = String(args.allow_zero_stock) === "1" ? "1" : "0";
+  args.run_minutes = Math.max(1, parseInt(args.run_minutes, 10) || 5);
+  args.retry_min_sec = Math.max(1, parseInt(args.retry_min_sec, 10) || 1);
+  args.retry_max_sec = Math.max(1, parseInt(args.retry_max_sec, 10) || 3);
+  if (args.retry_max_sec < args.retry_min_sec) args.retry_max_sec = args.retry_min_sec;
   return args;
 }
 
@@ -126,7 +139,10 @@ const ARGS = parseArgs();
     `keyword=${ARGS.keyword || "无"}`,
     `num=${ARGS.num}`,
     `pay_type=${ARGS.pay_type}`,
-    `dry_run=${ARGS.dry_run}`
+    `dry_run=${ARGS.dry_run}`,
+    `allow_zero_stock=${ARGS.allow_zero_stock}`,
+    `run_minutes=${ARGS.run_minutes}`,
+    `retry_interval=${ARGS.retry_min_sec}-${ARGS.retry_max_sec}s`
   ]);
   await createOrderByFlow();
   $.done();
@@ -165,22 +181,65 @@ async function createOrderByFlow() {
     return;
   }
 
+  const deadline = Date.now() + ARGS.run_minutes * 60 * 1000;
+  let round = 0;
+  let finalRows = [];
+  let finalScoreCost = 0;
+  let finalMsg = "";
+
+  while (Date.now() < deadline) {
+    round++;
+    const leftSec = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+    logBlock(`执行轮次 #${round}`, [`剩余执行时间=${leftSec}s`]);
+
+    const roundResult = await runOneRound(token);
+    finalRows = finalRows.concat(roundResult.resultRows.map((x) => `[第${round}轮] ${x}`));
+    finalScoreCost += roundResult.totalScoreCost;
+    if (roundResult.lastMsg) finalMsg = roundResult.lastMsg;
+
+    if (roundResult.success) {
+      logBlock("逐商品结果", finalRows.length ? finalRows : ["无"]);
+      logBlock("积分汇总", [`本次积分消耗=${finalScoreCost}`]);
+      $.msg($.name, "✅ 下单流程完成", `轮次: ${round} | 本次积分消耗: ${finalScoreCost}`);
+      return;
+    }
+
+    if (ARGS.dry_run === "1") {
+      logBlock("逐商品结果", finalRows.length ? finalRows : ["无"]);
+      logBlock("积分汇总", [`预计积分消耗=${finalScoreCost}`]);
+      $.msg($.name, "🧪 Dry Run 完成", `已演练 ${round} 轮（未真实下单）`);
+      return;
+    }
+
+    if (Date.now() >= deadline) break;
+    const waitSec = randomInt(ARGS.retry_min_sec, ARGS.retry_max_sec);
+    logStep("重试", `本轮未成功，${waitSec}s 后开始下一轮`);
+    await sleep(waitSec * 1000);
+  }
+
+  logBlock("逐商品结果", finalRows.length ? finalRows : ["无"]);
+  logBlock("积分汇总", [`本次积分消耗=${finalScoreCost}`]);
+  $.msg($.name, "⚠️ 下单结束", `执行时长达到 ${ARGS.run_minutes} 分钟 | 最后原因: ${finalMsg || "未命中可下单条件"}`);
+}
+
+async function runOneRound(token) {
   const products = await getProductList(token);
-  if (!products || !products.length) return;
+  if (!products || !products.length) {
+    return { success: false, resultRows: ["商品列表获取失败或为空"], totalScoreCost: 0, lastMsg: "商品列表为空" };
+  }
 
   const candidates = buildCandidates(products);
   if (!candidates.length) {
-    $.msg($.name, "❌ 无匹配商品", "请检查 id 或 keyword 参数");
-    logWarn("商品", "未筛选到候选商品");
-    return;
+    return { success: false, resultRows: ["未筛选到可尝试商品"], totalScoreCost: 0, lastMsg: "无匹配商品" };
   }
 
   const resultRows = [];
   let totalScoreCost = 0;
   let lastMsg = "";
+
   for (let i = 0; i < candidates.length; i++) {
     const product = candidates[i];
-    if (getStock(product) <= 0) {
+    if (getStock(product) <= 0 && ARGS.allow_zero_stock !== "1") {
       logWarn("下单", `跳过库存为0商品: id=${product.id}, 名称=${product.name}`);
       resultRows.push(`id=${product.id} | ${clipText(product.name, 16)} | 状态=跳过(库存0) | 积分消耗=0`);
       continue;
@@ -219,7 +278,7 @@ async function createOrderByFlow() {
       const successCost = (parseInt(product.score, 10) || 0) * ARGS.num;
       totalScoreCost += successCost;
       resultRows.push(`id=${product.id} | ${clipText(product.name, 16)} | 状态=成功 | 积分消耗=${successCost}`);
-      break;
+      return { success: true, resultRows, totalScoreCost, lastMsg: "" };
     }
 
     lastMsg = orderRes.msg || `code=${orderRes.code}`;
@@ -231,20 +290,7 @@ async function createOrderByFlow() {
     break;
   }
 
-  logBlock("逐商品结果", resultRows.length ? resultRows : ["无"]);
-  logBlock("积分汇总", [`本次积分消耗=${totalScoreCost}`]);
-
-  if (ARGS.dry_run === "1") {
-    $.msg($.name, "🧪 Dry Run 完成", `已遍历 ${resultRows.length} 个商品（未真实下单）`);
-    return;
-  }
-
-  const hasSuccess = resultRows.some((x) => x.indexOf("状态=成功") !== -1);
-  if (!hasSuccess) {
-    $.msg($.name, "⚠️ 下单失败", lastMsg || "请查看日志");
-  } else {
-    $.msg($.name, "✅ 下单流程完成", `本次积分消耗: ${totalScoreCost}`);
-  }
+  return { success: false, resultRows, totalScoreCost, lastMsg };
 }
 
 async function getProductList(token) {
@@ -281,9 +327,9 @@ async function getProductList(token) {
 }
 
 function buildCandidates(list) {
-  const availableList = list.filter((p) => getStock(p) > 0);
+  const availableList = ARGS.allow_zero_stock === "1" ? list : list.filter((p) => getStock(p) > 0);
   if (!availableList.length) {
-    logWarn("商品", "当前商品列表库存均为0");
+    logWarn("商品", ARGS.allow_zero_stock === "1" ? "商品列表为空" : "当前商品列表库存均为0");
     return [];
   }
 
@@ -291,7 +337,7 @@ function buildCandidates(list) {
     const hit = availableList.find((p) => String(p.id) === String(ARGS.id));
     if (!hit) {
       const inList = list.find((p) => String(p.id) === String(ARGS.id));
-      if (inList && getStock(inList) <= 0) {
+      if (inList && getStock(inList) <= 0 && ARGS.allow_zero_stock !== "1") {
         logWarn("商品", `指定 id=${ARGS.id} 库存为0，无法下单`);
       } else {
         logWarn("商品", `指定 id=${ARGS.id} 不在当前列表中`);
@@ -313,8 +359,16 @@ function buildCandidates(list) {
     return hits;
   }
 
-  logOk("商品", `未指定 id/keyword，默认按有库存商品顺序尝试，首个 id=${availableList[0].id}`);
+  logOk("商品", `未指定 id/keyword，默认按${ARGS.allow_zero_stock === "1" ? "商品列表" : "有库存商品"}顺序尝试，首个 id=${availableList[0].id}`);
   return availableList;
+}
+
+function randomInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function getOrderData(token, productId) {
