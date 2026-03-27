@@ -253,42 +253,59 @@ function buildHeaders(token) {
 
 function httpGet(url, token) {
   return new Promise((resolve) => {
+    let settled = false;
     const timer = setTimeout(() => {
-      logWarn("HTTP", `GET 超时(${ARGS.req_timeout}ms): ${url}`);
-      resolve({ error: "timeout", body: null });
+      if (!settled) {
+        settled = true;
+        logWarn("HTTP", `GET 超时(${ARGS.req_timeout}ms): ${url}`);
+        resolve({ error: "timeout", body: null });
+      }
     }, ARGS.req_timeout);
-
     $.http
       .get({ url, headers: buildHeaders(token) })
       .then((res) => {
-        clearTimeout(timer);
-        resolve({ error: null, body: res.body });
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve({ error: null, body: res.body });
+        }
       })
       .catch((e) => {
-        clearTimeout(timer);
-        logWarn("HTTP", `GET 异常: ${e}`);
-        resolve({ error: String(e), body: null });
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          logWarn("HTTP", `GET 异常: ${e}`);
+          resolve({ error: String(e), body: null });
+        }
       });
   });
 }
-
 function httpPost(url, token, data) {
   return new Promise((resolve) => {
+    let settled = false;
     const timer = setTimeout(() => {
-      logWarn("HTTP", `POST 超时(${ARGS.req_timeout}ms): ${url}`);
-      resolve({ error: "timeout", body: null });
+      if (!settled) {
+        settled = true;
+        logWarn("HTTP", `POST 超时(${ARGS.req_timeout}ms): ${url}`);
+        resolve({ error: "timeout", body: null });
+      }
     }, ARGS.req_timeout);
-
     $.http
       .post({ url, headers: buildHeaders(token), body: JSON.stringify(data) })
       .then((res) => {
-        clearTimeout(timer);
-        resolve({ error: null, body: res.body });
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve({ error: null, body: res.body });
+        }
       })
       .catch((e) => {
-        clearTimeout(timer);
-        logWarn("HTTP", `POST 异常: ${e}`);
-        resolve({ error: String(e), body: null });
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          logWarn("HTTP", `POST 异常: ${e}`);
+          resolve({ error: String(e), body: null });
+        }
       });
   });
 }
@@ -636,25 +653,40 @@ async function mainFlow() {
   // 4. 高速下单循环
   let round = 0;
   let totalScoreCost = 0;
+  let networkErrors = 0;  // 连续网络错误计数
   const resultRows = [];
   let currentIdx = 0;
-
   while (Date.now() < deadline) {
     round++;
     const product = candidates[currentIdx];
     const leftMs = Math.max(0, deadline - Date.now());
-
     if (round <= 3 || round % 50 === 0) {
       logStep("下单", `#${round} [${nowStr()}] id=${product.id}, 剩余${Math.floor(leftMs / 1000)}s`);
     }
-
+    
     const orderRes = await submitOrder(token, product.id, cachedAddressId);
-
+    // ===== 情况1：网络异常/超时 → 直接重试，不做业务判断 =====
+    if (orderRes.code === -1) {
+      networkErrors++;
+      if (round <= 5 || round % 20 === 0) {
+        logWarn("下单", `#${round} 网络异常(连续${networkErrors}次): ${orderRes.msg}`);
+      }
+      // 连续网络错误过多，延长等待避免白耗
+      if (networkErrors >= 10 && networkErrors % 10 === 0) {
+        logWarn("下单", `连续${networkErrors}次网络异常，等待2秒后继续`);
+        await sleep(2000);
+      }
+      if (Date.now() >= deadline) break;
+      await sleep(randomInt(ARGS.retry_min_ms, ARGS.retry_max_ms));
+      continue;
+    }
+    // 收到服务器响应，重置网络错误计数
+    networkErrors = 0;
+    // ===== 情况2：下单成功 =====
     if (orderRes.ok) {
       const cost = (parseInt(product.score, 10) || 0) * ARGS.num;
       totalScoreCost += cost;
       resultRows.push(`id=${product.id} | ${clipText(product.name, 16)} | ✅成功 | 积分=${cost}`);
-
       logBlock("🎉 下单成功", [
         `轮次=${round}`,
         `商品=${product.name} (id=${product.id})`,
@@ -670,19 +702,18 @@ async function mainFlow() {
       return;
     }
 
-    // 失败处理
+    // ===== 情况3：业务失败 =====
     const failMsg = orderRes.msg || `code=${orderRes.code}`;
-
+    // Token 失效：立即终止
     if (isTokenError(orderRes.msg)) {
       logWarn("下单", `Token 失效，终止: ${failMsg}`);
       $.msg($.name, "❌ Token 已失效", "请重新打开小程序获取 Token");
       return;
     }
-
+    // 库存不足：切换候选商品
     if (orderRes.msg && orderRes.msg.indexOf(STOCK_OUT_MSG) !== -1) {
       logWarn("下单", `#${round} 库存不足: id=${product.id}`);
       resultRows.push(`id=${product.id} | ${clipText(product.name, 16)} | 库存不足`);
-
       if (currentIdx < candidates.length - 1) {
         currentIdx++;
         logStep("切换", `尝试下一个候选: id=${candidates[currentIdx].id}`);
