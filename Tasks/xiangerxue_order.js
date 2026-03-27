@@ -581,13 +581,13 @@ async function mainFlow() {
     return;
   }
 
-  const tokenTime = parseInt($.getdata(tokenKey + "_time") || "0", 10);
+  /*const tokenTime = parseInt($.getdata(tokenKey + "_time") || "0", 10);
   if (tokenTime > 0) {
     const ageHours = Math.floor((Date.now() - tokenTime) / 3600000);
     if (ageHours > 24) {
       logWarn("Token", `Token 已获取 ${ageHours} 小时，可能已过期，建议刷新`);
     }
-  }
+  }*/
   logOk("Token", `已加载: ${maskToken(token)}`);
 
   const deadline = Date.now() + ARGS.run_minutes * 60 * 1000;
