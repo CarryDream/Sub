@@ -231,7 +231,7 @@ function captureToken() {
   const oldVal = $.getdata(tokenKey);
   if (val !== oldVal) {
     $.setdata(val, tokenKey);
-    $.setdata(String(Date.now()), tokenKey + "_time");
+    // $.setdata(String(Date.now()), tokenKey + "_time");
     logOk("Token", `已更新并保存: ${maskToken(val)}`);
     $.msg($.name, "✅ Token 已获取", "隐私信息已过滤保存");
   } else {
@@ -437,11 +437,11 @@ async function dryRunFlow() {
   }
   logOk("Token", `已加载: ${maskToken(token)}`);
 
-  const tokenTime = parseInt($.getdata(tokenKey + "_time") || "0", 10);
+  /*const tokenTime = parseInt($.getdata(tokenKey + "_time") || "0", 10);
   if (tokenTime > 0) {
     const ageHours = Math.floor((Date.now() - tokenTime) / 3600000);
     logStep("Token", `获取时间: ${new Date(tokenTime).toLocaleString()} (${ageHours}小时前)${ageHours > 24 ? " ⚠️ 可能已过期" : ""}`);
-  }
+  }*/
 
   // 2. 获取完整商品列表（dry_run 始终获取，不跳过）
   const products = await fetchProductList(token);
