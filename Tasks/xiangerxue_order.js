@@ -2,7 +2,7 @@
  * @name 慧幸福定时下单
  * @author CarryDream
  * @update 2025-06-01
- * @version 2.1.0
+ * @version 2.2.0
  * @description 抓取商品列表 -> 获取默认地址 -> 积分下单
  ******************************************
  */
@@ -243,11 +243,10 @@ function captureToken() {
 
 function buildHeaders(token) {
   return {
-    Host: "yidian.xiangerxue.cn",
-    token: token,
-    "User-Agent":
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
-    "content-type": "application/json"
+    "Host": "yidian.xiangerxue.cn",
+    "token": token,
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.66(0x18004237) NetType/WIFI Language/zh_CN",
+    "Content-Type": "application/json"
   };
 }
 
@@ -347,6 +346,59 @@ async function fetchProductList(token) {
   }
 }
 
+async function fetchProductInfo(token, productId) {
+  const url = `https://yidian.xiangerxue.cn/api/life/getProductInfo?id=${productId}`;
+
+  const resp = await httpGet(url, token);
+  if (resp.error) {
+    logWarn("库存", `商品详情请求失败: id=${productId}, err=${resp.error}`);
+    return null;
+  }
+
+  try {
+    const result = JSON.parse(resp.body || "{}");
+    if (result.code !== 1 || !result.data) {
+      logWarn("库存", `商品详情失败: id=${productId}, code=${result.code}, msg=${result.msg || "无"}`);
+      return null;
+    }
+    if (typeof result.data.stock === "undefined" || result.data.stock === null) {
+      logWarn("库存", `商品详情缺少stock字段: id=${productId}`);
+      return null;
+    }
+    return result.data;
+  } catch (e) {
+    logWarn("库存", `商品详情解析异常: id=${productId}, err=${e}`);
+    return null;
+  }
+}
+
+async function refreshProductStocks(token, products, scene) {
+  if (!Array.isArray(products) || !products.length) {
+    return { ok: 0, fail: 0 };
+  }
+
+  let ok = 0;
+  let fail = 0;
+  for (const product of products) {
+    const detail = await fetchProductInfo(token, product.id);
+    if (!detail) {
+      fail++;
+      continue;
+    }
+    const stock = parseInt(detail.stock, 10);
+    if (Number.isNaN(stock)) {
+      fail++;
+      logWarn("库存", `库存字段非数字: id=${product.id}, stock=${detail.stock}`);
+      continue;
+    }
+    product.stock = stock;
+    ok++;
+  }
+
+  logStep("库存", `${scene}库存刷新完成: 成功=${ok}, 失败=${fail}`);
+  return { ok, fail };
+}
+
 async function fetchOrderData(token, productId) {
   const url = `https://yidian.xiangerxue.cn/api/life/getOrderData?id=${productId}&address_id=`;
   logStep("地址", `获取下单信息: product_id=${productId}`);
@@ -374,7 +426,7 @@ async function submitOrder(token, productId, addressId) {
   const url = "https://yidian.xiangerxue.cn/api/life/createOrder";
   const payload = {
     address_id: addressId,
-    id: String(productId),
+    id: productId,
     num: ARGS.num,
     pay_type: ARGS.pay_type || "score",
     remark: ARGS.remark || ""
@@ -467,6 +519,8 @@ async function dryRunFlow() {
     $.msg($.name, "❌ 商品列表获取失败", "请检查网络或 Token");
     return;
   }
+
+  await refreshProductStocks(token, products, "DryRun ");
 
   // 3. 输出完整商品列表
   const productRows = [];
@@ -623,6 +677,7 @@ async function mainFlow() {
       $.msg($.name, "❌ 商品列表获取失败", "请检查网络或 Token");
       return;
     }
+    await refreshProductStocks(token, listResult, "正式模式 ");
     candidates = buildCandidates(listResult);
     if (!candidates.length) {
       $.msg($.name, "❌ 无可下单商品", "未筛选到符合条件的商品");
@@ -644,11 +699,7 @@ async function mainFlow() {
     logOk("预热", `使用指定地址 address_id=${cachedAddressId}`);
   }
 
-  logBlock("预热完成，开始下单", [
-    `候选商品数=${candidates.length}`,
-    `首选: id=${candidates[0].id}, ${clipText(candidates[0].name, 20)}`,
-    `地址ID=${cachedAddressId}`
-  ]);
+  logBlock("预热完成，开始下单", [`候选商品数=${candidates.length}`, `首选: id=${candidates[0].id}, ${clipText(candidates[0].name, 20)}`, `地址ID=${cachedAddressId}`]);
 
   // 4. 高速下单循环
   let round = 0;
@@ -714,6 +765,24 @@ async function mainFlow() {
     if (orderRes.msg && orderRes.msg.indexOf(STOCK_OUT_MSG) !== -1) {
       logWarn("下单", `#${round} 库存不足: id=${product.id}`);
       resultRows.push(`id=${product.id} | ${clipText(product.name, 16)} | 库存不足`);
+
+      const detail = await fetchProductInfo(token, product.id);
+      if (detail) {
+        const verifiedStock = parseInt(detail.stock, 10);
+        if (!Number.isNaN(verifiedStock)) {
+          product.stock = verifiedStock;
+          logStep("库存", `库存复核: id=${product.id}, stock=${verifiedStock}`);
+          if (verifiedStock > 0) {
+            logWarn("下单", `库存复核仍有库存，继续重试当前商品: id=${product.id}`);
+            if (Date.now() >= deadline) break;
+            await sleep(randomInt(ARGS.retry_min_ms, ARGS.retry_max_ms));
+            continue;
+          }
+        }
+      } else {
+        logWarn("库存", `库存复核失败，按库存不足处理: id=${product.id}`);
+      }
+
       if (currentIdx < candidates.length - 1) {
         currentIdx++;
         logStep("切换", `尝试下一个候选: id=${candidates[currentIdx].id}`);
